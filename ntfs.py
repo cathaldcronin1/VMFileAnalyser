@@ -253,7 +253,7 @@ class DiskAnalyser():
 
     def get_MFT_info(self, address):
 
-        for i in xrange(1):
+        for i in xrange(2):
             mft_record = self.get_disk_info(address+42860544, 1024)
             print "MFT File Record: ", i
             print
@@ -276,142 +276,129 @@ class DiskAnalyser():
             print "Number of this MFT record:",             int(self.toBigEndian(mft_record[88:96]), 16)
             print
 
-
+            total_offset = first_attr_offset
             # Must go to the first attribute offset
             # Get info from attribute name, length etc..
+            has_attributes = True
+            while has_attributes:
 
-            # Put first attribute into a structure of its own.
+                # Put first attribute into a structure of its own.
 
-            form_code = self.toBigEndian(mft_record[first_attr_offset + 16 : first_attr_offset + 18])
-            attr_length = int(self.toBigEndian(mft_record[first_attr_offset + 8: first_attr_offset + 16]), 16)
+                form_code = self.toBigEndian(mft_record[total_offset + 16 : total_offset + 18])
+                attr_length = int(self.toBigEndian(mft_record[total_offset + 8: total_offset + 16]), 16)
 
-            # Depending on which type, depends on how much of the record to read into
-            file_record = ""
+                # Depending on which type, depends on how much of the record to read into
+                file_record_hdr = ""
 
-            if form_code == "00":
-                # resident
-                record_attributes = mft_record[first_attr_offset: first_attr_offset + attr_length*2 ]
-            else:
-                # non resident
-                record_attributes = mft_record[first_attr_offset: first_attr_offset + attr_length*2 ]
+                if form_code == "00":
+                    # resident
+                    file_record_hdr = mft_record[total_offset: total_offset + 44 ]
+                else:
+                    # non resident
+                    file_record_hdr = mft_record[total_offset: total_offset + 128 ]
 
-            file_record = mft_record[first_attr_offset: first_attr_offset + attr_length*2 ]
+                type_id = ATTRIBUTE_TYPES.get(file_record_hdr[0:8],"Unknown attribute")
+                name_length = self.toBigEndian(file_record_hdr[18:20])
+                offset_to_name = self.toBigEndian(file_record_hdr[20:24])
+                flags = self.toBigEndian(file_record_hdr[24:28])
 
-            print "file_record", file_record
-
-            type_id = ATTRIBUTE_TYPES[record_attributes[0:8]]
-            name_length = self.toBigEndian(record_attributes[18:20])
-            offset_to_name = self.toBigEndian(record_attributes[20:24])
-            flags = self.toBigEndian(record_attributes[24:28])
-
-            # These are for resident attributes ONLY
-            attr_id = self.toBigEndian(record_attributes[28:32])
-            content_size = int(self.toBigEndian(record_attributes[32:40]), 16)
-            offset_to_content = int(self.toBigEndian(record_attributes[40:44]), 16)
-
-            # TODO - add non resident parsing
-
-            print "Attribute Type is:", type_id
-            print "Attribute Lengh is:", attr_length
-            print "Attribute is:", "Resident" if form_code == "00" else "Non-Resident"
-            print "File Name Length:", name_length
-            print "Offset to Name:", offset_to_name
-            print "Flags:", flags
-            print "Attribute ID:",attr_id
-            print "Content Size:",content_size
-            print "Offset to Content:",offset_to_content
-
-            # Sanity check. Add (content_size + offset_to_content) should equal attr_length
-            print "OKAY!" if content_size + offset_to_content == attr_length else "PROBLEM!"
-
-            # Go to content of record using offset_to_content from start of record header
-            std_info = mft_record[first_attr_offset + (offset_to_content*2) :first_attr_offset + (offset_to_content*2) + content_size*2]
-            print "std_info:", std_info
-            print
-            # pull out information from record
-            file_Ctime = std_info[0:16]
-            file_Atime = std_info[16:32]
-            file_Mtime = std_info[32:48]
-            file_Rtime = std_info[48:64]
-            dos_permis = std_info[64:72]
-            max_no_versions = std_info[72:80]
-            version_no = std_info[80:88]
-            class_id = std_info[88:96]
-            owner_id = std_info[96:104]
-            securtiy_id = std_info[104:112]
-            quota_charged = std_info[112:128]
-            usn =  std_info[128:144]
-
-            # file_Ctime = int(self.toBigEndian(mft_record[first_attr_offset + offset_to_content: first_attr_offset + offset_to_content + 16]),16)
-            # file_Atime = int(self.toBigEndian(mft_record[first_attr_offset + offset_to_content + 16: first_attr_offset + offset_to_content + 32]),16)
-            # file_Mtime = int(self.toBigEndian(mft_record[first_attr_offset + offset_to_content + 32: first_attr_offset + offset_to_content + 48]),16)
-            # file_Rtime = int(self.toBigEndian(mft_record[first_attr_offset + offset_to_content + 48: first_attr_offset + offset_to_content + 64]),16)
-
-            # file_Ctime = mft_record[first_attr_offset + offset_to_content: first_attr_offset + offset_to_content + 16]
-            # file_Atime = mft_record[first_attr_offset + offset_to_content + 16: first_attr_offset + offset_to_content + 32]
-            # file_Mtime = mft_record[first_attr_offset + offset_to_content + 32: first_attr_offset + offset_to_content + 48]
-            # file_Rtime = mft_record[first_attr_offset + offset_to_content + 48: first_attr_offset + offset_to_content + 64]
-
-            print "C time:", file_Ctime
-            print "A time:", file_Atime
-            print "M time:", file_Mtime
-            print "R time:", file_Rtime
-            print "dos_permissions:", dos_permis
-            print "max_no_versions:", max_no_versions
-            print "version_no:", version_no
-            print "class_id:", class_id
-            print "owner_id:", owner_id
-            print "securtiy_id:", securtiy_id
-            print "quota_charged:", quota_charged
-            print "usn:", usn
-
-            # import datetime
-            # print
-            # print datetime.datetime.fromtimestamp(self.filetime_to_Millis(file_Ctime) / 1000.0)
-            # print datetime.datetime.fromtimestamp(self.filetime_to_Millis(file_Atime) / 1000.0)
-            # print datetime.datetime.fromtimestamp(self.filetime_to_Millis(file_Mtime) / 1000.0)
-            # print datetime.datetime.fromtimestamp(self.filetime_to_Millis(file_Rtime) / 1000.0)
+                # These are for resident attributes ONLY
+                attr_id = self.toBigEndian(file_record_hdr[28:32])
+                content_size = int(self.toBigEndian(file_record_hdr[32:40]), 16)
+                offset_to_content = int(self.toBigEndian(file_record_hdr[40:44]), 16) * 2
 
 
-            # next attribute is $file_name
+                # TODO - add non resident parsing
 
-            file_name = mft_record[first_attr_offset + (offset_to_content*2) + attr_length: first_attr_offset + (offset_to_content*2) + attr_length + 140]
-            print "thiiiiiiiss"
-            print file_name
-            print len(file_name)
-            print "thiiiiiiiss"
+                print "Attribute Type is:", type_id
+                print "Attribute Lengh is:", attr_length
+                print "Attribute is:", "Resident" if form_code == "00" else "Non-Resident"
+                print "File Name Length:", name_length
+                print "Offset to Name:", offset_to_name
+                print "Flags:", flags
+                print "Attribute ID:",attr_id
+                print "Content Size:",content_size
+                print "Offset to Content:",offset_to_content
 
-            type_id = ATTRIBUTE_TYPES[file_name[0:8]]
-            attr_length = int(self.toBigEndian(file_name[8:16]),16)
-            form_code = self.toBigEndian(file_name[16:18])
-            name_length = self.toBigEndian(file_name[18:20])
-            offset_to_name = self.toBigEndian(file_name[20:24])
-            flags = self.toBigEndian(file_name[24:28])
+                print "OKAY!" if content_size + offset_to_content == attr_length else "PROBLEM!"
 
-            # These are for resident attributes ONLY
-            attr_id = self.toBigEndian(file_name[28:32])
-            content_size = int(self.toBigEndian(file_name[32:40]), 16)
-            offset_to_content = int(self.toBigEndian(file_name[40:44]),16)
+                file_record = mft_record[total_offset: total_offset + attr_length * 2]
+                if "FFFFFFFF" in file_record:
+                    has_attributes = False
+                    break
 
-            # TODO - add non resident parsing
+                print "\n=================================\n"
+                print file_record
+                print "\n=================================\n"
 
-            print "Attribute Type is:", type_id
-            print "Attribute Lengh is:", attr_length
-            print "Attribute is:", "Resident" if form_code == "00" else "Non-Resident"
-            print "File Name Length:", name_length
-            print "Offset to Name:", offset_to_name
-            print "Flags:", flags
-            print "Attribute ID:",attr_id
-            print "Content Size:",content_size
-            print "Offset to Content:",offset_to_content
+                if type_id == "$STANDARD_INFORMATION":
 
-            # Sanity check. Add (content_size + offset_to_content) should equal attr_length
-            print "OKAY!" if content_size + offset_to_content == attr_length else "PROBLEM!"
+                    print "\nprocessing $STANDARD_INFORMATION attribute\n"
 
-            # f_name = mft_record[first_attr_offset + (offset_to_content*2) + 144 + 140 + 84: first_attr_offset + (offset_to_content*2) + 144 + 140 + 84 + attr_length]
-            # print
-            # print f_name
+                    file_Ctime = file_record[offset_to_content + 0: offset_to_content + 16]
+                    file_Atime = file_record[offset_to_content + 16: offset_to_content + 32]
+                    file_Mtime = file_record[offset_to_content + 32: offset_to_content + 48]
+                    file_Rtime = file_record[offset_to_content + 48: offset_to_content + 64]
+                    dos_permis = file_record[offset_to_content + 64: offset_to_content + 72]
+                    max_no_versions = file_record[offset_to_content + 72: offset_to_content + 80]
+                    version_no = file_record[offset_to_content + 80: offset_to_content + 88]
+                    class_id = file_record[offset_to_content + 88: offset_to_content + 96]
+                    owner_id = file_record[offset_to_content + 96: offset_to_content + 104]
+                    securtiy_id = file_record[offset_to_content + 104: offset_to_content + 112]
+                    quota_charged = file_record[offset_to_content + 112: offset_to_content + 128]
+                    usn =  file_record[offset_to_content + 128: offset_to_content + 144]
 
+                    print "C time:", file_Ctime
+                    print "A time:", file_Atime
+                    print "M time:", file_Mtime
+                    print "R time:", file_Rtime
+                    print "dos_permissions:", dos_permis
+                    print "max_no_versions:", max_no_versions
+                    print "version_no:", version_no
+                    print "class_id:", class_id
+                    print "owner_id:", owner_id
+                    print "securtiy_id:", securtiy_id
+                    print "quota_charged:", quota_charged
+                    print "usn:", usn
+
+                elif type_id == "$FILE_NAME":
+
+                    print "\nprocessing $FILE_NAME attribute\n"
+                    parent_dir_ref = file_record[offset_to_content: offset_to_content + 16]
+                    file_create_time = file_record[offset_to_content + 16: offset_to_content + 32]
+                    file_modification_time = file_record[offset_to_content + 32: offset_to_content + 48]
+                    mft_modification_time = file_record[offset_to_content + 48: offset_to_content + 64]
+                    file_access_time = file_record[offset_to_content + 64: offset_to_content + 80]
+                    allocated_file_size = file_record[offset_to_content + 80: offset_to_content + 96]
+                    real_file_size = file_record[offset_to_content + 96: offset_to_content + 112]
+                    flags = file_record[offset_to_content + 112 :offset_to_content + 128]
+                    # reparse_value = file_record[offset_to_content + 120: offset_to_content + 136]
+                    # securtiy_id = file_record[offset_to_content + 128: offset_to_content + 136]
+                    file_name_lenght_unicode = file_record[offset_to_content + 128: offset_to_content + 130]
+                    file_name_namespace = file_record[offset_to_content + 130: offset_to_content + 132]
+                    file_name_unicode = file_record[offset_to_content + 132: offset_to_content + 166].decode("hex")
+
+                    print "parent_dir_ref", parent_dir_ref
+                    print "file_create_time", file_create_time
+                    print "file_modification_time", file_modification_time
+                    print "mft_modification_time", mft_modification_time
+                    print "file_access_time", file_access_time
+                    print "allocated_file_size", allocated_file_size
+                    print "real_file_size", real_file_size
+                    print "flags", flags
+                    # print "reparse_value", reparse_value
+                    # print "securtiy_id", securtiy_id
+                    print "file_name_lenght_unicode", file_name_lenght_unicode
+                    print "file_name_namespace", file_name_namespace
+                    print "file_name_unicode", file_name_unicode
+
+                else:
+                    print "other attributes"
+
+                total_offset += attr_length * 2
+                print
+                print "total offset:::", total_offset / 2
+                print
 
             # Move address to next MFT entry
             address += 1024
