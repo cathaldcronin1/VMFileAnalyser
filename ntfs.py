@@ -13,7 +13,7 @@ import binascii
 import sys
 
 # Map the bytes to system type
-part_types = {"00": "Unknown or Empty",
+PART_TYPES = {"00": "Unknown or Empty",
               "01": "12-bit FAT",
               "04": "16-bit FAT (< 32MB)",
               "05": "Extended MS-DOS Partition",
@@ -22,6 +22,26 @@ part_types = {"00": "Unknown or Empty",
               "0B": "FAT-32 (CHS)",
               "0C": "FAT-32 (LBA)",
               "0E": "FAT-16 (LBA)"}
+
+
+ATTRIBUTE_TYPES = {"10000000": "$STANDARD_INFORMATION",
+                   "20000000": "$ATTRIBUTE_LIST",
+                   "30000000": "$FILE_NAME",
+                   "40000000": "$VOLUME_VERSION",
+                   "40000000": "$OBJECT_ID",
+                   "50000000": "$SECURITY_DESCRIPTOR",
+                   "60000000": "$VOLUME_NAME",
+                   "70000000": "$VOLUME_INFORMATION",
+                   "80000000": "$DATA",
+                   "90000000": "$INDEX_ROOT",
+                   "A0000000": "$INDEX_ALLOCATION",
+                   "B0000000": "$BITMAP",
+                   "C0000000": "$SYMBOLIC_LINK",
+                   "C0000000": "$REPARSE_POINT",
+                   "D0000000": "$EA_INFORMATION",
+                   "E0000000": "$EA",
+                   "F0000000": "$PROPERTY_SET",
+                   "100000000": "$LOGGED_UTILITY_STREAM"}
 
 # Constant for sector size of 512 Bytes
 SECTOR_SIZE = 512
@@ -49,7 +69,7 @@ class DiskAnalyser():
             read_range = 16
         else:
             # if reading volume info multiply address by sector size
-            seek_address = address * SECTOR_SIZE + VOL_OFFSET
+            seek_address = address * SECTOR_SIZE
             print "Seek address", seek_address
 
 
@@ -62,6 +82,18 @@ class DiskAnalyser():
 
             # read bytes and convert to hex
             byte = f.read(read_range)
+            disk_info = binascii.hexlify(byte).upper()
+
+        return disk_info
+
+    def get_disk_info(self, address, bytes_to_read):
+
+        with open(self.filepath, "rb") as f:
+            # seek to sector address
+            f.seek(address)
+
+            # read bytes and convert to hex
+            byte = f.read(bytes_to_read)
             disk_info = binascii.hexlify(byte).upper()
 
         return disk_info
@@ -81,9 +113,26 @@ class DiskAnalyser():
 
     def get_partition_type(self, p_type):
         """ Return partition type """
-        for t in part_types:
-            if t in part_types.keys():
-                return part_types[p_type]
+        for t in PART_TYPES:
+            if t in PART_TYPES.keys():
+                return PART_TYPES[p_type]
+
+
+    def get_attribute_type(self, attr_types):
+        """ Return partition type """
+        for t in ATTRIBUTE_TYPES:
+            if t in ATTRIBUTE_TYPES.keys():
+                return ATTRIBUTE_TYPES[attr_types]
+
+    def filetime_to_Millis(self, filetime):
+
+        filetime -= 127541957167518016L
+        if filetime < 0:
+            filetime = -1 - ((-filetime - 1) / 10000)
+        else:
+            filetime = filetime / 10000
+
+        return filetime
 
     def get_partition_info(self):
         """ Pick out relevant partition information """
@@ -144,7 +193,8 @@ class DiskAnalyser():
 
         # Get NTFS BPB and Extended BPB code.
         vol_info = self.read_disk_info(address, False, True)
-        print len(vol_info)
+        print vol_info
+        print
 
         # This also appears to work! but there was a minus sign beside some of the hex values.
         # After taking these out it seemed to fix this.
@@ -157,20 +207,22 @@ class DiskAnalyser():
 
         # Pull out information on NTFS Volume.
 
+        # vol_info = "EB52904E5446532020202000020800000000000000F800003F00FF00002803000000000080008000FFCF3C010000000000000C00000000000200000000000000F600000001000000497AA398B1A3982A00000000"
+
         bytes_per_sector = int(self.toBigEndian(vol_info[22:26]), 16)
 
         sectors_per_cluster = int(self.toBigEndian(vol_info[26:28]), 16)
 
         media_descriptor = int(self.toBigEndian(vol_info[42:44]), 16)
 
-        total_sectors = int(self.toBigEndian(vol_info[80:94].strip("0")), 16)
+        total_sectors = int(self.toBigEndian(vol_info[80:94]), 16)
 
-        MFT_cluster_location = int(self.toBigEndian(vol_info[96:110].strip("0")), 16)
+        MFT_cluster_location = int(self.toBigEndian(vol_info[96:110]), 16)
 
         # NOTE HAD TO STRIP ZEROS FROM THIS READING WOULDN'T WORK OTHERWISE
         # TODO: LOOK INTO!!!
 
-        MFT_copy_cluster_location = int(self.toBigEndian(vol_info[112:126].strip("0")), 16)
+        MFT_copy_cluster_location = int(self.toBigEndian(vol_info[112:126]), 16)
 
         clusters_per_MFT_record = int(self.toBigEndian(vol_info[128:130]), 16)
 
@@ -190,6 +242,180 @@ class DiskAnalyser():
         print  "clusters_per_MFT_record: ",  clusters_per_MFT_record
         print  "clusters_per_index_buffer: ",  clusters_per_index_buffer
         print  "volume_serial_number: ",  volume_serial_number
+
+        ntfs_vol_info = {"bytes_per_sector" : bytes_per_sector,
+                         "sectors_per_cluster" : sectors_per_cluster,
+                         "MFT_cluster_location" : MFT_cluster_location}
+
+        return ntfs_vol_info
+
+
+
+    def get_MFT_info(self, address):
+
+        for i in xrange(1):
+            mft_record = self.get_disk_info(address+42860544, 1024)
+            print "MFT File Record: ", i
+            print
+            print
+
+            print "magic number:",                          mft_record[0:8].decode("hex")
+            print "update sequence offset:",                int(self.toBigEndian(mft_record[8:12]), 16)
+            print "Entries in Fixup Array:",                int(self.toBigEndian(mft_record[12:16]), 16)
+            print "LogFile Sequence Number:",               int(self.toBigEndian(mft_record[16:32]), 16)
+            print "Sequence number:",                       int(self.toBigEndian(mft_record[32:36]), 16)
+            print "Hard link count:",                       int(self.toBigEndian(mft_record[36:40]), 16)
+            first_attr_offset = int(self.toBigEndian(mft_record[40:44]), 16) * 2
+            print "Offset to first attribute:",             first_attr_offset/2, "bytes"
+            print "Offset to first attribute in hex:",      self.toBigEndian(mft_record[40:44])
+            print "Flags:",                                 int(self.toBigEndian(mft_record[44:48]), 16)
+            print "Used size of MFT entry:",                int(self.toBigEndian(mft_record[48:56]), 16)
+            print "Allocated size of MFT entry:",           int(self.toBigEndian(mft_record[56:64]), 16)
+            print "File reference to the base FILE record:",int(self.toBigEndian(mft_record[64:80]), 16)
+            print "Next attribute ID:",                     self.toBigEndian(mft_record[80:84])
+            print "Number of this MFT record:",             int(self.toBigEndian(mft_record[88:96]), 16)
+            print
+
+
+            # Must go to the first attribute offset
+            # Get info from attribute name, length etc..
+
+            # Put first attribute into a structure of its own.
+
+            form_code = self.toBigEndian(mft_record[first_attr_offset + 16 : first_attr_offset + 18])
+            attr_length = int(self.toBigEndian(mft_record[first_attr_offset + 8: first_attr_offset + 16]), 16)
+
+            # Depending on which type, depends on how much of the record to read into
+            file_record = ""
+
+            if form_code == "00":
+                # resident
+                record_attributes = mft_record[first_attr_offset: first_attr_offset + attr_length*2 ]
+            else:
+                # non resident
+                record_attributes = mft_record[first_attr_offset: first_attr_offset + attr_length*2 ]
+
+            file_record = mft_record[first_attr_offset: first_attr_offset + attr_length*2 ]
+
+            print "file_record", file_record
+
+            type_id = ATTRIBUTE_TYPES[record_attributes[0:8]]
+            name_length = self.toBigEndian(record_attributes[18:20])
+            offset_to_name = self.toBigEndian(record_attributes[20:24])
+            flags = self.toBigEndian(record_attributes[24:28])
+
+            # These are for resident attributes ONLY
+            attr_id = self.toBigEndian(record_attributes[28:32])
+            content_size = int(self.toBigEndian(record_attributes[32:40]), 16)
+            offset_to_content = int(self.toBigEndian(record_attributes[40:44]), 16)
+
+            # TODO - add non resident parsing
+
+            print "Attribute Type is:", type_id
+            print "Attribute Lengh is:", attr_length
+            print "Attribute is:", "Resident" if form_code == "00" else "Non-Resident"
+            print "File Name Length:", name_length
+            print "Offset to Name:", offset_to_name
+            print "Flags:", flags
+            print "Attribute ID:",attr_id
+            print "Content Size:",content_size
+            print "Offset to Content:",offset_to_content
+
+            # Sanity check. Add (content_size + offset_to_content) should equal attr_length
+            print "OKAY!" if content_size + offset_to_content == attr_length else "PROBLEM!"
+
+            # Go to content of record using offset_to_content from start of record header
+            std_info = mft_record[first_attr_offset + (offset_to_content*2) :first_attr_offset + (offset_to_content*2) + content_size*2]
+            print "std_info:", std_info
+            print
+            # pull out information from record
+            file_Ctime = std_info[0:16]
+            file_Atime = std_info[16:32]
+            file_Mtime = std_info[32:48]
+            file_Rtime = std_info[48:64]
+            dos_permis = std_info[64:72]
+            max_no_versions = std_info[72:80]
+            version_no = std_info[80:88]
+            class_id = std_info[88:96]
+            owner_id = std_info[96:104]
+            securtiy_id = std_info[104:112]
+            quota_charged = std_info[112:128]
+            usn =  std_info[128:144]
+
+            # file_Ctime = int(self.toBigEndian(mft_record[first_attr_offset + offset_to_content: first_attr_offset + offset_to_content + 16]),16)
+            # file_Atime = int(self.toBigEndian(mft_record[first_attr_offset + offset_to_content + 16: first_attr_offset + offset_to_content + 32]),16)
+            # file_Mtime = int(self.toBigEndian(mft_record[first_attr_offset + offset_to_content + 32: first_attr_offset + offset_to_content + 48]),16)
+            # file_Rtime = int(self.toBigEndian(mft_record[first_attr_offset + offset_to_content + 48: first_attr_offset + offset_to_content + 64]),16)
+
+            # file_Ctime = mft_record[first_attr_offset + offset_to_content: first_attr_offset + offset_to_content + 16]
+            # file_Atime = mft_record[first_attr_offset + offset_to_content + 16: first_attr_offset + offset_to_content + 32]
+            # file_Mtime = mft_record[first_attr_offset + offset_to_content + 32: first_attr_offset + offset_to_content + 48]
+            # file_Rtime = mft_record[first_attr_offset + offset_to_content + 48: first_attr_offset + offset_to_content + 64]
+
+            print "C time:", file_Ctime
+            print "A time:", file_Atime
+            print "M time:", file_Mtime
+            print "R time:", file_Rtime
+            print "dos_permissions:", dos_permis
+            print "max_no_versions:", max_no_versions
+            print "version_no:", version_no
+            print "class_id:", class_id
+            print "owner_id:", owner_id
+            print "securtiy_id:", securtiy_id
+            print "quota_charged:", quota_charged
+            print "usn:", usn
+
+            # import datetime
+            # print
+            # print datetime.datetime.fromtimestamp(self.filetime_to_Millis(file_Ctime) / 1000.0)
+            # print datetime.datetime.fromtimestamp(self.filetime_to_Millis(file_Atime) / 1000.0)
+            # print datetime.datetime.fromtimestamp(self.filetime_to_Millis(file_Mtime) / 1000.0)
+            # print datetime.datetime.fromtimestamp(self.filetime_to_Millis(file_Rtime) / 1000.0)
+
+
+            # next attribute is $file_name
+
+            file_name = mft_record[first_attr_offset + (offset_to_content*2) + attr_length: first_attr_offset + (offset_to_content*2) + attr_length + 140]
+            print "thiiiiiiiss"
+            print file_name
+            print len(file_name)
+            print "thiiiiiiiss"
+
+            type_id = ATTRIBUTE_TYPES[file_name[0:8]]
+            attr_length = int(self.toBigEndian(file_name[8:16]),16)
+            form_code = self.toBigEndian(file_name[16:18])
+            name_length = self.toBigEndian(file_name[18:20])
+            offset_to_name = self.toBigEndian(file_name[20:24])
+            flags = self.toBigEndian(file_name[24:28])
+
+            # These are for resident attributes ONLY
+            attr_id = self.toBigEndian(file_name[28:32])
+            content_size = int(self.toBigEndian(file_name[32:40]), 16)
+            offset_to_content = int(self.toBigEndian(file_name[40:44]),16)
+
+            # TODO - add non resident parsing
+
+            print "Attribute Type is:", type_id
+            print "Attribute Lengh is:", attr_length
+            print "Attribute is:", "Resident" if form_code == "00" else "Non-Resident"
+            print "File Name Length:", name_length
+            print "Offset to Name:", offset_to_name
+            print "Flags:", flags
+            print "Attribute ID:",attr_id
+            print "Content Size:",content_size
+            print "Offset to Content:",offset_to_content
+
+            # Sanity check. Add (content_size + offset_to_content) should equal attr_length
+            print "OKAY!" if content_size + offset_to_content == attr_length else "PROBLEM!"
+
+            # f_name = mft_record[first_attr_offset + (offset_to_content*2) + 144 + 140 + 84: first_attr_offset + (offset_to_content*2) + 144 + 140 + 84 + attr_length]
+            # print
+            # print f_name
+
+
+            # Move address to next MFT entry
+            address += 1024
+
 
 
 
@@ -320,12 +546,27 @@ def main(argv):
 
 
     # Get NTFS volume address in decimal
-    vol_sec_address = int(p_info[0].get("Sector Start Address"),16)
+    vol_sec_address = int(p_info[1].get("Sector Start Address"),16)
 
     print "----- VOLUME INFO -----"
 
 
     NTFS_vol_info = disk_analyser.get_NTFS_vol_info(vol_sec_address)
+
+    # With NTFS Volume info.
+    # Calcluate physical sector address to find the MFT location.
+    # mft_physical_address =  mft_logical_addr + (partitition sizes + partition start address')
+
+    mft_cluster_location = NTFS_vol_info.get("MFT_cluster_location")
+    sectors_per_cluster = NTFS_vol_info.get("sectors_per_cluster")
+
+    mft_logical_addr = mft_cluster_location * sectors_per_cluster
+    mft_physical_addr = (mft_logical_addr + (int(p_info[0].get("Sector Start Address"),16) + int(p_info[0].get("Partition Size"),16))) * SECTOR_SIZE
+
+    print mft_logical_addr
+
+    print "MFT Physical Sector Address: ", mft_physical_addr
+    disk_analyser.get_MFT_info(mft_physical_addr)
 
 
 if __name__ == '__main__':
