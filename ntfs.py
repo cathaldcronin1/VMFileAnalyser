@@ -528,7 +528,7 @@ class DiskAnalyser():
 
         printHeader = False
 
-        f = codecs.open("some1.csv",'w','utf-8')
+        f = codecs.open("mft_record_output.csv",'w','utf-8')
         f.write(header)
         for row in someiterable:
             for i in row:
@@ -545,7 +545,7 @@ def main(argv):
 
     # Redirect print statements to file output
     # Makes it easier to read output and analyse
-    sys.stdout = open("Output.txt", "w")
+    sys.stdout = open("output.txt", "w")
 
     if len(argv) == 1:
         # Display how to use if you don't give a file path
