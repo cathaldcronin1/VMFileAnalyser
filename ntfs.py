@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-# Disk Analyser Tool For EE6012- Data Forensics
+# Disk Analysis Tool - NTFS Volume Analyser
 # Author: Cathal Cronin
-# Date: 03/03/2015
+# Date: 06/08/2015
 # Version: 1.0
 
 
