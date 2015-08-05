@@ -549,20 +549,22 @@ def main(argv):
 
     if len(argv) == 1:
         # Display how to use if you don't give a file path
-        print "Usage: python diskAnalyser.py <path_to_file> -mft <- Optional"
+        print "Usage: python diskAnalyser.py <path_to_file> -mft volume_number"
         sys.exit()
     elif len(argv) == 2:
         file_path = argv[1]
-    elif len(argv) >= 2 and argv[2] == "-mft" and isinstance(int(argv[3]), int):
+    elif len(argv) > 3 and argv[2] == "-mft" and str(argv[3]).isdigit():
         # Parse MFT of a given volume
         file_path = argv[1]
         parseMFT = True
         volume_no = int(argv[3])
-
+    else:
+        # Display how to use if you don't give a file path
+        print "Usage: python diskAnalyser.py <path_to_file> -mft volume_number"
+        sys.exit()
 
     # Create diskAnalyser object, with a file path
     disk_analyser = DiskAnalyser(file_path)
-
 
     # Default usage - Get partition information from MBR (Master Boot Record)
     partition_info, volume_info = disk_analyser.display_disk_info()
@@ -584,7 +586,7 @@ def main(argv):
         mft_physical_addr += mft_logical_addr
         mft_physical_addr = mft_physical_addr * SECTOR_SIZE
 
-        print "MFT location", mft_physical_addr
+        print "MFT Physical Sector Number:", mft_physical_addr / SECTOR_SIZE
         rows = disk_analyser.get_MFT_info(mft_physical_addr)
         disk_analyser.output_to_CSV(rows)
 
