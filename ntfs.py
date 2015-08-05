@@ -359,6 +359,7 @@ class DiskAnalyser():
                 file_record = mft_record[total_offset: total_offset + attr_length * 2]
 
                 print "\n=================================\n"
+                print "Bytes for current file attribute:\n"
                 print file_record
                 print "\n=================================\n"
 
@@ -394,14 +395,14 @@ class DiskAnalyser():
                 elif type_id == "$FILE_NAME":
 
                     print "\nprocessing $FILE_NAME attribute\n"
-                    parent_dir_ref          = file_record[offset_to_content: offset_to_content + 16]
-                    file_create_time        = file_record[offset_to_content + 16: offset_to_content + 32]
-                    file_modification_time  = file_record[offset_to_content + 32: offset_to_content + 48]
-                    mft_modification_time   = file_record[offset_to_content + 48: offset_to_content + 64]
-                    file_access_time        = file_record[offset_to_content + 64: offset_to_content + 80]
-                    allocated_file_size     = file_record[offset_to_content + 80: offset_to_content + 96]
-                    real_file_size          = file_record[offset_to_content + 96: offset_to_content + 112]
-                    flags                   = file_record[offset_to_content + 112 :offset_to_content + 128]
+                    parent_dir_ref          = self.toBigEndian(file_record[offset_to_content: offset_to_content + 16])
+                    file_create_time        = self.toBigEndian(file_record[offset_to_content + 16: offset_to_content + 32])
+                    file_modification_time  = self.toBigEndian(file_record[offset_to_content + 32: offset_to_content + 48])
+                    mft_modification_time   = self.toBigEndian(file_record[offset_to_content + 48: offset_to_content + 64])
+                    file_access_time        = self.toBigEndian(file_record[offset_to_content + 64: offset_to_content + 80])
+                    allocated_file_size     = self.toBigEndian(file_record[offset_to_content + 80: offset_to_content + 96])
+                    real_file_size          = self.toBigEndian(file_record[offset_to_content + 96: offset_to_content + 112])
+                    filename_flags          = self.toBigEndian(file_record[offset_to_content + 112 :offset_to_content + 128])
 
                     file_name_lenght_unicode = int(self.toBigEndian(file_record[offset_to_content + 128: offset_to_content + 130]),16)
                     file_name_namespace      = file_record[offset_to_content + 130: offset_to_content + 132]
@@ -414,10 +415,11 @@ class DiskAnalyser():
                     print "file_access_time",         file_access_time
                     print "allocated_file_size",      allocated_file_size
                     print "real_file_size",           real_file_size
-                    print "flags",                    flags
+                    print "filename_flags",                    filename_flags
                     print "file_name_lenght_unicode", file_name_lenght_unicode
                     print "file_name_namespace",      file_name_namespace
                     print "file_name_unicode",        filename
+                    print
 
                     read_attributes = False
 
@@ -472,6 +474,7 @@ class DiskAnalyser():
                    sequence_number,
                    hardlink_count,
                    dos_permis,
+                   filename_flags,
                    used_mft_size,
                    allocated_mft_size,
                    logfile_sequence_num,
@@ -519,9 +522,9 @@ class DiskAnalyser():
         """ Outputs MFT to a csv file """
 
         header = "Record Number" + "," + "Good or Bad" + "," + "Record_Type" + \
-                 ","+ "Filename" + ","+ "File Sequence No" + ","+ "Hardlink Count" + \
-                 ","+ "Flags" + ","+ "Used MFT Size" + ","+ "Allocated MFT Size" + \
-                 ","+ "Logfile Sequence No" + ","+ "Parent File Reference" + "\n"
+                 "," + "Filename" + "," + "File Sequence No" + ","+ "Hardlink Count" + \
+                 "," + "Flags" + ","  + "Filename Flags" + "," + "Used MFT Size" + "," + "Allocated MFT Size" + \
+                 "," + "Logfile Sequence No" + "," + "Parent File Reference" + "\n"
 
         printHeader = False
 
