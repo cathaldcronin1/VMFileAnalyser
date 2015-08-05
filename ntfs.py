@@ -247,6 +247,11 @@ class DiskAnalyser():
         isGood = "Good"
         filename = ""
 
+        # If a mft record doesn't have these values defaulted, it will error out
+        dos_permis = 0
+        filename_flags = 0
+        parent_dir_ref = 0
+
         # Parse MFT until no more files left or we reach a BAAD file
         while hasFiles:
 
