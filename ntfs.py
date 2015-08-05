@@ -9,13 +9,12 @@
 # Used binascii to work with hex strings and hex conversion.
 # Used sys to handle parameter passing when running tool.
 from hurry.filesize import size
+from sets import Set
+
 import binascii
 import sys
 import csv
-
-from sets import Set
-
-import mftutils
+import codecs
 
 # Map the bytes to system type
 PART_TYPES = {"00": "Unknown or Empty",
@@ -28,7 +27,7 @@ PART_TYPES = {"00": "Unknown or Empty",
               "0C": "FAT-32 (LBA)",
               "0E": "FAT-16 (LBA)"}
 
-
+# Map the bytes to attribute type
 ATTRIBUTE_TYPES = {"10000000": "$STANDARD_INFORMATION",
                    "20000000": "$ATTRIBUTE_LIST",
                    "30000000": "$FILE_NAME",
@@ -48,21 +47,21 @@ ATTRIBUTE_TYPES = {"10000000": "$STANDARD_INFORMATION",
                    "F0000000": "$PROPERTY_SET",
                    "100000000": "$LOGGED_UTILITY_STREAM"}
 
+# Map the bytes to record type
+FILE_FLAGS = {"0": "Deleted",
+              "1": "Record in Use",
+              "2": "Directory",
+              "3": "Directory in Use"}
+
 # Constant for sector size of 512 Bytes
 SECTOR_SIZE = 512
-
-# First sector of an NTFS Volume's boot sector has a jump instruction and OEM ID
-# These are 3 and 8 bytes respectively. This constant offsets it
-# for when I seek into the disk.
-VOL_OFFSET = 0
 
 class DiskAnalyser():
     def __init__(self, filepath):
         self.filepath = filepath
-        self.mft_location = 0
 
     def read_disk_info(self, address, reading_partition=True, reading_volume=False):
-        """ Read into the disk and return bytes of information """
+        """ Seek into the disk at given address and return bytes of information """
 
         disk_info = ""
         seek_address = int(address)
@@ -91,6 +90,7 @@ class DiskAnalyser():
         return disk_info
 
     def get_disk_info(self, address, bytes_to_read):
+        """ Seek to given address and read the amount of bytes given """
 
         with open(self.filepath, "rb") as f:
             # seek to sector address
@@ -121,22 +121,11 @@ class DiskAnalyser():
             if t in PART_TYPES.keys():
                 return PART_TYPES[p_type]
 
-
     def get_attribute_type(self, attr_types):
         """ Return partition type """
         for t in ATTRIBUTE_TYPES:
             if t in ATTRIBUTE_TYPES.keys():
                 return ATTRIBUTE_TYPES[attr_types]
-
-    def filetime_to_Millis(self, filetime):
-
-        filetime -= 116444736000000000L
-        if filetime < 0:
-            filetime = -1 - ((-filetime - 1) / 10000)
-        else:
-            filetime = filetime / 10000
-
-        return filetime
 
     def get_partition_info(self):
         """ Pick out relevant partition information """
@@ -193,7 +182,7 @@ class DiskAnalyser():
         return p_info
 
     def get_NTFS_vol_info(self, volume_num, address):
-        """ Get Information NTFS Volume"""
+        """ Get Information on NTFS Volume"""
 
         # Get NTFS BPB and Extended BPB code.
         vol_info = self.read_disk_info(address, False, True)
@@ -249,29 +238,26 @@ class DiskAnalyser():
 
         return ntfs_vol_info
 
-
-
     def get_MFT_info(self, address):
+        """ Parse the Master File Table and get record information """
 
         hasFiles = True
         record_num = 0
         rows = []
         isGood = "Good"
-        record_type = "File"
         filename = ""
 
-        count = 0
+        # Parse MFT until no more files left or we reach a BAAD file
         while hasFiles:
 
             mft_record = self.get_disk_info(address, 1024)
             print "MFT File Record: ", record_num
             record_num += 1
-            print "magic number:",                          mft_record[0:8].decode("hex")
+            print "magic number:", mft_record[0:8].decode("hex")
             if mft_record[0:8].decode("hex") != "FILE":
                 # terminate
                 hasFiles = False
                 isGood = "Bad"
-
 
             update_sequence_offset  = int(self.toBigEndian(mft_record[8:12]), 16)
             fixup_entries_array = int(self.toBigEndian(mft_record[12:16]), 16)
@@ -279,28 +265,28 @@ class DiskAnalyser():
             sequence_number = int(self.toBigEndian(mft_record[32:36]), 16)
             hardlink_count =   int(self.toBigEndian(mft_record[36:40]), 16)
             offset_to_first_attribute = int(self.toBigEndian(mft_record[40:44]), 16)
-            flags = int(self.toBigEndian(mft_record[44:48]), 16)
+            mft_record_flags = str(int(self.toBigEndian(mft_record[44:48]), 16))
             used_mft_size = int(self.toBigEndian(mft_record[48:56]), 16)
             allocated_mft_size = int(self.toBigEndian(mft_record[56:64]), 16)
             reference_to_base_file = int(self.toBigEndian(mft_record[64:80]), 16)
             next_atttribute_id = self.toBigEndian(mft_record[80:84])
             record_num  = int(self.toBigEndian(mft_record[88:96]), 16)
-
-            print "update sequence offset:",
-            print "Entries in Fixup Array:",
-            print "LogFile Sequence Number:",
-            print "Sequence number:",
-            print "Hard link count:",
             first_attr_offset = int(self.toBigEndian(mft_record[40:44]), 16) * 2
+
+            print "update sequence offset:",                update_sequence_offset
+            print "Entries in Fixup Array:",                fixup_entries_array
+            print "LogFile Sequence Number:",               logfile_sequence_num
+            print "Sequence number:",                       sequence_number
+            print "Hard link count:",                       hardlink_count
             print "Offset to first attribute:",             first_attr_offset/2, "bytes"
-            print "Offset to first attribute in hex:",      self.toBigEndian(mft_record[40:44])
+            print "Offset to first attribute in hex:",      offset_to_first_attribute
             # This tells me that the file is deleted or in use
-            print "Flags:",
-            print "Used size of MFT entry:",
-            print "Allocated size of MFT entry:",
-            print "File reference to the base FILE record:",
-            print "Next attribute ID:",
-            print "Number of this MFT record:",
+            print "Flags:",                                 mft_record_flags
+            print "Used size of MFT entry:",                used_mft_size
+            print "Allocated size of MFT entry:",           allocated_mft_size
+            print "File reference to the base FILE record:",reference_to_base_file
+            print "Next attribute ID:",                     next_atttribute_id
+            print "Number of this MFT record:",             record_num
             print
 
             total_offset = first_attr_offset
@@ -310,26 +296,26 @@ class DiskAnalyser():
             isFile = True
 
             while read_attributes:
-                type_id = ATTRIBUTE_TYPES.get(mft_record[total_offset : total_offset + 8],"Unknown attribute")
-                attr_length = int(self.toBigEndian(mft_record[total_offset + 8: total_offset + 16]), 16)
-                form_code = self.toBigEndian(mft_record[total_offset + 16 : total_offset + 18])
-                name_length = self.toBigEndian(mft_record[total_offset + 18 : total_offset + 20])
+                type_id        = ATTRIBUTE_TYPES.get(mft_record[total_offset : total_offset + 8],"Unknown attribute")
+                attr_length    = int(self.toBigEndian(mft_record[total_offset + 8: total_offset + 16]), 16)
+                form_code      = self.toBigEndian(mft_record[total_offset + 16 : total_offset + 18])
+                name_length    = self.toBigEndian(mft_record[total_offset + 18 : total_offset + 20])
                 offset_to_name = self.toBigEndian(mft_record[total_offset + 20 : total_offset + 24])
-                flags = self.toBigEndian(mft_record[total_offset + 24 : total_offset + 28])
-                attr_id = self.toBigEndian(mft_record[total_offset + 28 : total_offset + 30])
+                flags          = self.toBigEndian(mft_record[total_offset + 24 : total_offset + 28])
+                attr_id        = self.toBigEndian(mft_record[total_offset + 28 : total_offset + 30])
 
-                print "Attribute Type is:", type_id
+                print "Attribute Type is:",  type_id
                 print "Attribute Lengh is:", attr_length
+                print "File Name Length:",   name_length
+                print "Offset to Name:",     offset_to_name
+                print "Flags:",              flags
                 print "Attribute is:", "Resident" if form_code == "00" else "Non-Resident"
-                print "File Name Length:", name_length
-                print "Offset to Name:", offset_to_name
-                print "Flags:", flags
 
                 # Depending on which type, depends on how much of the record to read into
                 file_record_hdr = ""
 
                 if form_code == "00":
-                    # resident
+                    # resident attribute
                     file_record_hdr = mft_record[total_offset: total_offset + 44 ]
 
                     # These are for resident attributes ONLY
@@ -338,11 +324,11 @@ class DiskAnalyser():
 
                     # print non-resident attributes
                     print "\n------- RESIDENT ATTRIBUTES -------\n"
-                    print "Attribute ID:",attr_id
-                    print "Content Size:",content_size
-                    print "Offset to Content:",offset_to_content
+                    print "Attribute ID:",      attr_id
+                    print "Content Size:",      content_size
+                    print "Offset to Content:", offset_to_content
                 else:
-                    # non resident
+                    # non resident attribute
                     file_record_hdr = mft_record[total_offset: total_offset + 128 ]
 
                     # These are for non-resident
@@ -357,15 +343,15 @@ class DiskAnalyser():
 
                     # print non-resident attributes
                     print "\n------- NON-RESIDENT ATTRIBUTES -------\n"
-                    print "Attribute ID:",attr_id
-                    print "starting_VCN: ", starting_VCN
-                    print "ending_VCN: ", ending_VCN
-                    print "offset_to_runlist: ", offset_to_runlist
-                    print "compression_unit_size: ", compression_unit_size
-                    print "unused: ", unused
-                    print "allocated_size: ", allocated_size
-                    print "actual_size: ", actual_size
-                    print "initialised_size: ", initialised_size
+                    print "Attribute ID:",          attr_id
+                    print "starting_VCN: ",         starting_VCN
+                    print "ending_VCN: ",           ending_VCN
+                    print "offset_to_runlist: ",    offset_to_runlist
+                    print "compression_unit_size: ",compression_unit_size
+                    print "unused: ",               unused
+                    print "allocated_size: ",       allocated_size
+                    print "actual_size: ",          actual_size
+                    print "initialised_size: ",     initialised_size
 
 
                 print "OKAY!" if content_size + offset_to_content == attr_length else "PROBLEM!"
@@ -377,80 +363,75 @@ class DiskAnalyser():
                 print "\n=================================\n"
 
                 if type_id == "$STANDARD_INFORMATION":
-
                     print "\nprocessing $STANDARD_INFORMATION attribute\n"
 
-                    file_Ctime = file_record[offset_to_content + 0: offset_to_content + 16]
-                    file_Atime = file_record[offset_to_content + 16: offset_to_content + 32]
-                    file_Mtime = file_record[offset_to_content + 32: offset_to_content + 48]
-                    file_Rtime = file_record[offset_to_content + 48: offset_to_content + 64]
+                    file_Ctime      = self.toBigEndian(file_record[offset_to_content + 0: offset_to_content + 16])
+                    file_Atime      = self.toBigEndian(file_record[offset_to_content + 16: offset_to_content + 32])
+                    file_Mtime      = self.toBigEndian(file_record[offset_to_content + 32: offset_to_content + 48])
+                    file_Rtime      = self.toBigEndian(file_record[offset_to_content + 48: offset_to_content + 64])
+                    dos_permis      = self.toBigEndian(file_record[offset_to_content + 64: offset_to_content + 72])
+                    max_no_versions = self.toBigEndian(file_record[offset_to_content + 72: offset_to_content + 80])
+                    version_no      = self.toBigEndian(file_record[offset_to_content + 80: offset_to_content + 88])
+                    class_id        = self.toBigEndian(file_record[offset_to_content + 88: offset_to_content + 96])
+                    owner_id        = self.toBigEndian(file_record[offset_to_content + 96: offset_to_content + 104])
+                    securtiy_id     = self.toBigEndian(file_record[offset_to_content + 104: offset_to_content + 112])
+                    quota_charged   = self.toBigEndian(file_record[offset_to_content + 112: offset_to_content + 128])
+                    usn             = self.toBigEndian(file_record[offset_to_content + 128: offset_to_content + 144])
 
-                    print mftutils.WindowsTime(int(file_Ctime[0:8],16), int(file_Ctime[8:16],16),False).dtstr
-                    print "windows times:", file_Ctime
-
-                    dos_permis = file_record[offset_to_content + 64: offset_to_content + 72]
-                    max_no_versions = file_record[offset_to_content + 72: offset_to_content + 80]
-                    version_no = file_record[offset_to_content + 80: offset_to_content + 88]
-                    class_id = file_record[offset_to_content + 88: offset_to_content + 96]
-                    owner_id = file_record[offset_to_content + 96: offset_to_content + 104]
-                    securtiy_id = file_record[offset_to_content + 104: offset_to_content + 112]
-                    quota_charged = file_record[offset_to_content + 112: offset_to_content + 128]
-                    usn =  file_record[offset_to_content + 128: offset_to_content + 144]
-
-                    print "C time:", file_Ctime
-                    print "A time:", file_Atime
-                    print "M time:", file_Mtime
-                    print "R time:", file_Rtime
+                    print "C time:",          file_Ctime
+                    print "A time:",          file_Atime
+                    print "M time:",          file_Mtime
+                    print "R time:",          file_Rtime
                     print "dos_permissions:", dos_permis
                     print "max_no_versions:", max_no_versions
-                    print "version_no:", version_no
-                    print "class_id:", class_id
-                    print "owner_id:", owner_id
-                    print "securtiy_id:", securtiy_id
-                    print "quota_charged:", quota_charged
-                    print "usn:", usn
+                    print "version_no:",      version_no
+                    print "class_id:",        class_id
+                    print "owner_id:",        owner_id
+                    print "securtiy_id:",     securtiy_id
+                    print "quota_charged:",   quota_charged
+                    print "usn:",             usn
 
                 elif type_id == "$FILE_NAME":
 
                     print "\nprocessing $FILE_NAME attribute\n"
-                    parent_dir_ref = file_record[offset_to_content: offset_to_content + 16]
-                    file_create_time = file_record[offset_to_content + 16: offset_to_content + 32]
-                    file_modification_time = file_record[offset_to_content + 32: offset_to_content + 48]
-                    mft_modification_time = file_record[offset_to_content + 48: offset_to_content + 64]
-                    file_access_time = file_record[offset_to_content + 64: offset_to_content + 80]
-                    allocated_file_size = file_record[offset_to_content + 80: offset_to_content + 96]
-                    real_file_size = file_record[offset_to_content + 96: offset_to_content + 112]
-                    flags = file_record[offset_to_content + 112 :offset_to_content + 128]
+                    parent_dir_ref          = file_record[offset_to_content: offset_to_content + 16]
+                    file_create_time        = file_record[offset_to_content + 16: offset_to_content + 32]
+                    file_modification_time  = file_record[offset_to_content + 32: offset_to_content + 48]
+                    mft_modification_time   = file_record[offset_to_content + 48: offset_to_content + 64]
+                    file_access_time        = file_record[offset_to_content + 64: offset_to_content + 80]
+                    allocated_file_size     = file_record[offset_to_content + 80: offset_to_content + 96]
+                    real_file_size          = file_record[offset_to_content + 96: offset_to_content + 112]
+                    flags                   = file_record[offset_to_content + 112 :offset_to_content + 128]
 
                     file_name_lenght_unicode = int(self.toBigEndian(file_record[offset_to_content + 128: offset_to_content + 130]),16)
-                    file_name_namespace = file_record[offset_to_content + 130: offset_to_content + 132]
-                    filename = file_record[offset_to_content + 132: offset_to_content + 132 +(file_name_lenght_unicode*2) +32].decode("hex").encode("utf-8")
+                    file_name_namespace      = file_record[offset_to_content + 130: offset_to_content + 132]
+                    filename                 = file_record[offset_to_content + 132: offset_to_content + 132 +(file_name_lenght_unicode*2) +32].decode("hex").encode("utf-8")
 
-                    print "parent_dir_ref", parent_dir_ref
-                    print "file_create_time", file_create_time
-                    print "file_modification_time", file_modification_time
-                    print "mft_modification_time", mft_modification_time
-                    print "file_access_time", file_access_time
-                    print "allocated_file_size", allocated_file_size
-                    print "real_file_size", real_file_size
-                    print "flags", flags
+                    print "parent_dir_ref",           parent_dir_ref
+                    print "file_create_time",         file_create_time
+                    print "file_modification_time",   file_modification_time
+                    print "mft_modification_time",    mft_modification_time
+                    print "file_access_time",         file_access_time
+                    print "allocated_file_size",      allocated_file_size
+                    print "real_file_size",           real_file_size
+                    print "flags",                    flags
                     print "file_name_lenght_unicode", file_name_lenght_unicode
-                    print "file_name_namespace", file_name_namespace
-                    print "file_name_unicode", filename
+                    print "file_name_namespace",      file_name_namespace
+                    print "file_name_unicode",        filename
 
                     read_attributes = False
 
                 elif type_id == "$DATA":
-                    print "DATA Attributes go here..."
-                    # read_attributes.append("$DATA")
                     read_attributes = False
+
                 elif type_id == "$INDEX_ROOT":
+
                     # This is a directory entry
                     isFile = False
                     read_attributes = False
                     # Parse Index root
-                    Attribute_Type = file_record[offset_to_content : offset_to_content + 8]
-                    Collation_Rule = file_record[offset_to_content + 8: offset_to_content + 16]
+                    Attribute_Type  = file_record[offset_to_content : offset_to_content + 8]
+                    Collation_Rule  = file_record[offset_to_content + 8: offset_to_content + 16]
                     Size_of_Index_Allocation_Entry  = file_record[offset_to_content + 16: offset_to_content + 24]
                     Clusters_per_Index_Record = file_record[offset_to_content + 24: offset_to_content +  26]
                     Padding  = file_record[offset_to_content + 26: offset_to_content + 32]
@@ -468,7 +449,6 @@ class DiskAnalyser():
                     Flags = self.toBigEndian(file_record[offset_to_content + 56: offset_to_content + 58])
                     Padding = int(self.toBigEndian(file_record[offset_to_content + 58: offset_to_content + 64]),16)
 
-
                     print "Offset_to_first_Index_Entry", Offset_to_first_Index_Entry
                     print "Total_size_of_the_Index_Entries", Total_size_of_the_Index_Entries
                     print "Allocated_size_of_the_Index_Entries", Allocated_size_of_the_Index_Entries
@@ -476,46 +456,40 @@ class DiskAnalyser():
                     print "Padding", Padding
 
                 elif type_id == "$INDEX_ALLOCATION":
-                    pass
+                    # No need to parse info from this as it's just part of a directory
+                    read_attributes= False
                 else:
+                    # Needed to stop the loop for unknown/unhanded attributes
                     read_attributes= False
 
+                # Update the offset after reading current attribute
                 total_offset += attr_length * 2
-                print
-                print "total offset:", total_offset / 2
-                print
-
-            if  not isFile:
-                record_type = "Folder"
 
             row = [record_num,
                    isGood,
-                   record_type,
+                   FILE_FLAGS.get(mft_record_flags,"Other Record Type"),
                    filename,
                    sequence_number,
                    hardlink_count,
-                   flags,
+                   dos_permis,
                    used_mft_size,
                    allocated_mft_size,
                    logfile_sequence_num,
-                   reference_to_base_file]
+                   parent_dir_ref]
 
-            count += 1
-
-            # if count >= 30:
-            #     return rows
-
-
+            # convert all elements to strings
             rows.append(map(str,row))
+
             # Move address to next MFT entry
             address += 1024
 
+        # Return the rows of data we want to write to csv file.
         return rows
 
     def display_disk_info(self):
+        """ Outputs the Layout and Structure of the disk """
         p_info = self.get_partition_info()
 
-        part_info = []
         vol_info = []
 
         print "----- PARTITION INFO -----"
@@ -542,24 +516,17 @@ class DiskAnalyser():
         return p_info, vol_info
 
     def output_to_CSV(self, someiterable):
+        """ Outputs MFT to a csv file """
 
-        fieldnames = ["Record Number",
-                      "Good or Bad",
-                      "Record_Type",
-                      "Filename",
-                      "File Sequence No",
-                      "Hardlink Count",
-                      "Flags",
-                      "Used MFT Size",
-                      "Allocated MFT Size",
-                      "Logfile Sequence No",
-                      "Parent File Reference",
-                      "update_sequence_offset"]
+        header = "Record Number" + "," + "Good or Bad" + "," + "Record_Type" + \
+                 ","+ "Filename" + ","+ "File Sequence No" + ","+ "Hardlink Count" + \
+                 ","+ "Flags" + ","+ "Used MFT Size" + ","+ "Allocated MFT Size" + \
+                 ","+ "Logfile Sequence No" + ","+ "Parent File Reference" + "\n"
+
         printHeader = False
 
-        print someiterable
-        import codecs
         f = codecs.open("some1.csv",'w','utf-8')
+        f.write(header)
         for row in someiterable:
             for i in row:
                 f.write(i + ",")
@@ -567,13 +534,16 @@ class DiskAnalyser():
             f.write("\n")
         f.close()
 
-
-
 def main(argv):
-    print argv
 
+    # Set default values
     parseMFT = False
     volume_no = 0
+
+    # Redirect print statements to file output
+    # Makes it easier to read output and analyse
+    sys.stdout = open("Output.txt", "w")
+
     if len(argv) == 1:
         # Display how to use if you don't give a file path
         print "Usage: python diskAnalyser.py <path_to_file> -mft <- Optional"
@@ -590,9 +560,11 @@ def main(argv):
     # Create diskAnalyser object, with a file path
     disk_analyser = DiskAnalyser(file_path)
 
+
     # Default usage - Get partition information from MBR (Master Boot Record)
     partition_info, volume_info = disk_analyser.display_disk_info()
 
+    # Parses the Master File Table if given specified options
     if parseMFT:
         mft_cluster_location = volume_info[volume_no].get("MFT_cluster_location")
         sectors_per_cluster = volume_info[volume_no].get("sectors_per_cluster")
@@ -601,6 +573,7 @@ def main(argv):
         mft_physical_addr = 0
 
         i = 0
+        # Calculate MFT location on disk
         while i < volume_no:
             mft_physical_addr += int(partition_info[i].get("Sector Start Address"),16) + int(partition_info[i].get("Partition Size"),16)
             i += 1
