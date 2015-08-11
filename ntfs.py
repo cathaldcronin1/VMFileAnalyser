@@ -210,9 +210,6 @@ class DiskAnalyser():
 
         MFT_cluster_location = int(self.toBigEndian(vol_info[96:110]), 16)
 
-        # NOTE HAD TO STRIP ZEROS FROM THIS READING WOULDN'T WORK OTHERWISE
-        # TODO: LOOK INTO!!!
-
         MFT_copy_cluster_location = int(self.toBigEndian(vol_info[112:126]), 16)
 
         clusters_per_MFT_record = int(self.toBigEndian(vol_info[128:130]), 16)
